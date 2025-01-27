@@ -16,16 +16,16 @@ public final class AsyncUndoManager {
     /// Redos; sorted by first is the most recent action and last is in future.
     public private(set) var redos: [AsyncDo] = []
     
-    /// Grouped Undos; sorted by first is the most recent action and last is in the past.
+    /// Undo Groups; sorted by first is the most recent action and last is in the past.
     ///
     /// Each group has at least one undo.
-    public var groupedUndos: [AsyncDoGroup] {
+    public var undoGroups: [AsyncDoGroup] {
         Self.group(dos: undos)
     }
-    /// Grouped Redos; sorted by first is the most recent action and last is in future.
+    /// Redos Groups; sorted by first is the most recent action and last is in future.
     ///
     /// Each group has at least one redo.
-    public var groupedRedos: [AsyncDoGroup] {
+    public var redoGroups: [AsyncDoGroup] {
         Self.group(dos: redos)
     }
     
@@ -47,8 +47,17 @@ public final class AsyncUndoManager {
 }
 
 extension AsyncUndoManager {
+    /// Undos all changes up to and including the target group or do `id`.
+    ///
+    /// If the `id` is not found, no undos will happen.
+    public func undoAll(to id: UUID) async {
+        guard canUndo else { return }
+        while undoGroups.contains(where: { $0.id == id || $0.dos.contains(where: { $0.id == id }) }) {
+            await undo()
+        }
+    }
+    
     public func undo() async {
-        guard !isUndoing, !isRedoing else { return }
         guard canUndo else { return }
         isUndoing = true
         let undo: AsyncDo = undos.removeFirst()
@@ -64,8 +73,17 @@ extension AsyncUndoManager {
         }
     }
     
+    /// Redos all changes up to and including the target group or do `id`.
+    ///
+    /// If the `id` is not found, no redos will happen.
+    public func redoAll(to id: UUID) async {
+        guard canRedo else { return }
+        while redoGroups.contains(where: { $0.id == id || $0.dos.contains(where: { $0.id == id }) }) {
+            await redo()
+        }
+    }
+    
     public func redo() async {
-        guard !isUndoing, !isRedoing else { return }
         guard canRedo else { return }
         isRedoing = true
         let redo: AsyncDo = redos.removeFirst()
