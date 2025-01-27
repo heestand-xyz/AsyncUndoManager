@@ -52,16 +52,15 @@ extension AsyncUndoManager {
         guard canUndo else { return }
         isUndoing = true
         let undo: AsyncDo = undos.removeFirst()
-        if let group: (id: UUID, name: String?) = undo.group {
+        if currentGroup == nil, let group: (id: UUID, name: String?) = undo.group {
             beginUndoGrouping(id: group.id, named: group.name)
         }
         await undo.action()
-        if undo.group != nil {
-            endUndoGrouping()
-        }
         isUndoing = false
         if canUndo, let groupID = undo.group?.id, undos.first?.group?.id == groupID {
             await self.undo()
+        } else if currentGroup != nil {
+            endUndoGrouping()
         }
     }
     
@@ -70,16 +69,15 @@ extension AsyncUndoManager {
         guard canRedo else { return }
         isRedoing = true
         let redo: AsyncDo = redos.removeFirst()
-        if let group: (id: UUID, name: String?) = redo.group {
+        if currentGroup == nil, let group: (id: UUID, name: String?) = redo.group {
             beginUndoGrouping(id: group.id, named: group.name)
         }
         await redo.action()
-        if redo.group != nil {
-            endUndoGrouping()
-        }
         isRedoing = false
         if canRedo, let groupID = redo.group?.id, redos.first?.group?.id == groupID {
             await self.redo()
+        } else if currentGroup != nil {
+            endUndoGrouping()
         }
     }
 }
@@ -99,10 +97,10 @@ extension AsyncUndoManager {
         if isUndoing {
             redos.insert(`do`, at: 0)
         } else {
-            undos.insert(`do`, at: 0)
             if !isRedoing {
                 redos.removeAll()
             }
+            undos.insert(`do`, at: 0)
             if levelsOfUndo > 0, undos.count > levelsOfUndo {
                 undos.removeLast()
             }
@@ -112,8 +110,14 @@ extension AsyncUndoManager {
 
 extension AsyncUndoManager {
     public func beginUndoGrouping(
-        id: UUID = UUID(),
         named name: String? = nil
+    ) {
+        beginUndoGrouping(id: UUID(), named: name)
+    }
+    
+    private func beginUndoGrouping(
+        id: UUID,
+        named name: String?
     ) {
         currentGroup = (id, name)
     }
