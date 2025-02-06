@@ -41,7 +41,30 @@ public final class AsyncUndoManager {
     
     public private(set) var isUndoRegistrationEnabled: Bool = true
     
-    private var currentGroup: (id: UUID, name: String?)?
+    private var groupMetadataList: [AsyncDoGroupMetadata] = []
+    
+    private var currentGroupMetadata: AsyncDoGroupMetadata? {
+        groupMetadataList.first
+    }
+    
+    public var currentGroupID: UUID? {
+        currentGroupMetadata?.id
+    }
+    
+    public var currentGroupName: String? {
+        currentGroupMetadata?.name
+    }
+    
+    public var currentGroupObject: Sendable? {
+        currentGroupMetadata?.object
+    }
+    
+    /// The number of nested undo groups.
+    ///
+    /// `0` is default and indicates no groups are active.
+    public var groupingLevel: Int {
+        groupMetadataList.count
+    }
     
     public init() {}
 }
@@ -61,14 +84,14 @@ extension AsyncUndoManager {
         guard canUndo else { return }
         isUndoing = true
         let undo: AsyncDo = undos.removeFirst()
-        if currentGroup == nil, let group: (id: UUID, name: String?) = undo.group {
-            beginUndoGrouping(id: group.id, named: group.name)
+        if currentGroupMetadata == nil, let groupMetadata: AsyncDoGroupMetadata = undo.groupMetadata {
+            beginUndoGrouping(metadata: groupMetadata)
         }
         await undo.action()
         isUndoing = false
-        if canUndo, let groupID = undo.group?.id, undos.first?.group?.id == groupID {
+        if canUndo, let groupID = undo.groupMetadata?.id, undos.first?.groupMetadata?.id == groupID {
             await self.undo()
-        } else if currentGroup != nil {
+        } else if currentGroupMetadata != nil {
             endUndoGrouping()
         }
     }
@@ -87,14 +110,14 @@ extension AsyncUndoManager {
         guard canRedo else { return }
         isRedoing = true
         let redo: AsyncDo = redos.removeFirst()
-        if currentGroup == nil, let group: (id: UUID, name: String?) = redo.group {
-            beginUndoGrouping(id: group.id, named: group.name)
+        if currentGroupMetadata == nil, let groupMetadata: AsyncDoGroupMetadata = redo.groupMetadata {
+            beginUndoGrouping(metadata: groupMetadata)
         }
         await redo.action()
         isRedoing = false
-        if canRedo, let groupID = redo.group?.id, redos.first?.group?.id == groupID {
+        if canRedo, let groupID = redo.groupMetadata?.id, redos.first?.groupMetadata?.id == groupID {
             await self.redo()
-        } else if currentGroup != nil {
+        } else if currentGroupMetadata != nil {
             endUndoGrouping()
         }
     }
@@ -108,7 +131,7 @@ extension AsyncUndoManager {
         guard isUndoRegistrationEnabled else { return }
         let `do` = AsyncDo(
             id: UUID(),
-            group: currentGroup,
+            groupMetadata: currentGroupMetadata,
             name: name,
             action: action
         )
@@ -127,32 +150,42 @@ extension AsyncUndoManager {
 }
 
 extension AsyncUndoManager {
+    /// Begin a grouping of dos.
+    /// - Parameters:
+    ///   - name: Attach a name to your group. (optional)
+    ///   - object: Attach an object to your group. (optional)
     public func beginUndoGrouping(
-        named name: String? = nil
+        named name: String? = nil,
+        object: Sendable? = nil
     ) {
-        beginUndoGrouping(id: UUID(), named: name)
+        let metadata = AsyncDoGroupMetadata(id: UUID(), name: name, object: object)
+        beginUndoGrouping(metadata: metadata)
     }
     
     private func beginUndoGrouping(
-        id: UUID,
-        named name: String?
+        metadata: AsyncDoGroupMetadata
     ) {
-        currentGroup = (id, name)
+        groupMetadataList.append(metadata)
     }
     
     public func endUndoGrouping() {
-        currentGroup = nil
+        if groupMetadataList.isEmpty { return }
+        groupMetadataList.removeLast()
     }
     
     private static func group(dos: [AsyncDo]) -> [AsyncDoGroup] {
         var grouped: [AsyncDoGroup] = []
         for `do` in dos {
-            if let groupID = `do`.group?.id, grouped.last?.dos.last?.group?.id == groupID {
+            if let groupID = `do`.groupMetadata?.id, grouped.last?.dos.last?.groupMetadata?.id == groupID {
                 grouped[grouped.count - 1].dos.append(`do`)
             } else {
+                let metadata: AsyncDoGroupMetadata = if let metadata = `do`.groupMetadata {
+                    metadata
+                } else {
+                    AsyncDoGroupMetadata(id: `do`.id, name: `do`.name, object: nil)
+                }
                 let group = AsyncDoGroup(
-                    id: `do`.group?.id ?? `do`.id,
-                    name: `do`.group?.name ?? `do`.name,
+                    metadata: metadata,
                     dos: [`do`]
                 )
                 grouped.append(group)

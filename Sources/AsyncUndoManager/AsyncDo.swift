@@ -2,7 +2,7 @@ import Foundation
 
 public struct AsyncDo: Identifiable, Sendable {
     public let id: UUID
-    public let group: (id: UUID, name: String?)?
+    let groupMetadata: AsyncDoGroupMetadata?
     public let name: String?
     let action: @Sendable () async -> Void
 }
