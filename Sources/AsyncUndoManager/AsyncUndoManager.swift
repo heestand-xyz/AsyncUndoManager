@@ -37,10 +37,13 @@ public final class AsyncUndoManager {
     /// `0` levels of undo indicates no limit. *(default)*
     ///
     /// When a limit is reached, the oldest undos will be discarded.
+    @ObservationIgnored
     public var levelsOfUndo: Int = 0
     
+    @ObservationIgnored
     public private(set) var isUndoRegistrationEnabled: Bool = true
     
+    @ObservationIgnored
     private var groupMetadataList: [AsyncDoGroupMetadata] = []
     
     private var currentGroupMetadata: AsyncDoGroupMetadata? {
