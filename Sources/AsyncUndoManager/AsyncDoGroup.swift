@@ -7,7 +7,7 @@
 
 import Foundation
 
-public struct AsyncDoGroup: Identifiable {
+public struct AsyncDoGroup: Identifiable, Sendable {
     let metadata: AsyncDoGroupMetadata
     /// This `id` is determined by the current group the actions where registered in.
     ///

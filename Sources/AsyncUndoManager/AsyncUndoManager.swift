@@ -19,15 +19,11 @@ public final class AsyncUndoManager {
     /// Undo Groups; sorted by first is the most recent action and last is in the past.
     ///
     /// Each group has at least one undo.
-    public var undoGroups: [AsyncDoGroup] {
-        Self.group(dos: undos)
-    }
+    public private(set) var undoGroups: [AsyncDoGroup] = []
     /// Redos Groups; sorted by first is the most recent action and last is in future.
     ///
     /// Each group has at least one redo.
-    public var redoGroups: [AsyncDoGroup] {
-        Self.group(dos: redos)
-    }
+    public private(set) var redoGroups: [AsyncDoGroup] = []
     
     public private(set) var isUndoing: Bool = false
     public private(set) var isRedoing: Bool = false
@@ -76,9 +72,11 @@ extension AsyncUndoManager {
     /// Undos all changes up to and including the target group or do `id`.
     ///
     /// If the `id` is not found, no undos will happen.
+    @concurrent
     public func undoAll(to id: UUID) async {
-        guard canUndo else { return }
-        while undoGroups.contains(where: { $0.id == id || $0.dos.contains(where: { $0.id == id }) }) {
+        guard await canUndo else { return }
+        let groups = await undoGroups
+        while groups.contains(where: { $0.id == id || $0.dos.contains(where: { $0.id == id }) }) {
             await undo()
         }
     }
@@ -86,7 +84,10 @@ extension AsyncUndoManager {
     public func undo() async {
         guard canUndo else { return }
         isUndoing = true
-        let undo: AsyncDo = undos.removeFirst()
+        let undo: AsyncDo = undos.first!
+        await editUndos { undos in
+            undos.removeFirst()
+        }
         if currentGroupMetadata == nil, let groupMetadata: AsyncDoGroupMetadata = undo.groupMetadata {
             beginUndoGrouping(metadata: groupMetadata)
         }
@@ -102,9 +103,11 @@ extension AsyncUndoManager {
     /// Redos all changes up to and including the target group or do `id`.
     ///
     /// If the `id` is not found, no redos will happen.
+    @concurrent
     public func redoAll(to id: UUID) async {
-        guard canRedo else { return }
-        while redoGroups.contains(where: { $0.id == id || $0.dos.contains(where: { $0.id == id }) }) {
+        guard await canRedo else { return }
+        let groups = await redoGroups
+        while groups.contains(where: { $0.id == id || $0.dos.contains(where: { $0.id == id }) }) {
             await redo()
         }
     }
@@ -112,7 +115,10 @@ extension AsyncUndoManager {
     public func redo() async {
         guard canRedo else { return }
         isRedoing = true
-        let redo: AsyncDo = redos.removeFirst()
+        let redo: AsyncDo = redos.first!
+        await editRedos { redos in
+            redos.removeFirst()
+        }
         if currentGroupMetadata == nil, let groupMetadata: AsyncDoGroupMetadata = redo.groupMetadata {
             beginUndoGrouping(metadata: groupMetadata)
         }
@@ -130,7 +136,7 @@ extension AsyncUndoManager {
     public func registerUndo(
         named name: String? = nil,
         _ action: @escaping @Sendable () async -> Void
-    ) {
+    ) async {
         guard isUndoRegistrationEnabled else { return }
         let `do` = AsyncDo(
             id: UUID(),
@@ -139,14 +145,22 @@ extension AsyncUndoManager {
             action: action
         )
         if isUndoing {
-            redos.insert(`do`, at: 0)
+            await editRedos { redos in
+                redos.insert(`do`, at: 0)
+            }
         } else {
             if !isRedoing {
-                redos.removeAll()
+                await editRedos { redos in
+                    redos.removeAll()
+                }
             }
-            undos.insert(`do`, at: 0)
+            await editUndos { undos in
+                undos.insert(`do`, at: 0)
+            }
             if levelsOfUndo > 0, undos.count > levelsOfUndo {
-                undos.removeLast()
+                await editUndos { undos in
+                    undos.removeLast()
+                }
             }
         }
     }
@@ -176,7 +190,8 @@ extension AsyncUndoManager {
         groupMetadataList.removeLast()
     }
     
-    private static func group(dos: [AsyncDo]) -> [AsyncDoGroup] {
+    @concurrent
+    private static func group(dos: [AsyncDo]) async -> [AsyncDoGroup] {
         var grouped: [AsyncDoGroup] = []
         for `do` in dos {
             if let groupID = `do`.groupMetadata?.id, grouped.last?.dos.last?.groupMetadata?.id == groupID {
@@ -209,8 +224,24 @@ extension AsyncUndoManager {
 }
 
 extension AsyncUndoManager {
-    public func removeAllActions() {
-        undos = []
-        redos = []
+    public func removeAllActions() async {
+        await editUndos { undos in
+            undos = []
+        }
+        await editRedos { redos in
+            redos = []
+        }
+    }
+}
+
+extension AsyncUndoManager {
+    private func editUndos(_ edit: (inout [AsyncDo]) -> Void) async {
+        edit(&undos)
+        undoGroups = await Self.group(dos: undos)
+    }
+    
+    private func editRedos(_ edit: (inout [AsyncDo]) -> Void) async {
+        edit(&redos)
+        redoGroups = await Self.group(dos: redos)
     }
 }
