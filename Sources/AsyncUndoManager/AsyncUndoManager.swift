@@ -39,7 +39,6 @@ public final class AsyncUndoManager {
     @ObservationIgnored
     public private(set) var isUndoRegistrationEnabled: Bool = true
     
-    @ObservationIgnored
     private var groupMetadataList: [AsyncDoGroupMetadata] = []
     
     private var currentGroupMetadata: AsyncDoGroupMetadata? {
