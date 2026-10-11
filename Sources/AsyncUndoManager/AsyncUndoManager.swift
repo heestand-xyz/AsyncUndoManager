@@ -75,7 +75,9 @@ extension AsyncUndoManager {
     public func undoAll(to id: UUID) async {
         guard await canUndo else { return }
         while await undoGroups.contains(where: { $0.id == id || $0.dos.contains(where: { $0.id == id }) }) {
+            let previousID: UUID? = await undos.first?.id
             await undo(force: true)
+            if await undos.first?.id == previousID { break }
         }
     }
     
@@ -93,8 +95,13 @@ extension AsyncUndoManager {
         if currentGroupMetadata == nil, let groupMetadata: AsyncDoGroupMetadata = undo.groupMetadata {
             beginUndoGrouping(metadata: groupMetadata)
         }
-        await undo.action()
+        let succeeded: Bool = await undo.action()
         isUndoing = false
+        guard succeeded else {
+            await editUndos { $0.insert(undo, at: 0) }
+            if currentGroupMetadata != nil { endUndoGrouping() }
+            return
+        }
         if force ? !undos.isEmpty : canUndo, let groupID = undo.groupMetadata?.id, undos.first?.groupMetadata?.id == groupID {
             await self.undo(force: force)
         } else if currentGroupMetadata != nil {
@@ -109,7 +116,9 @@ extension AsyncUndoManager {
     public func redoAll(to id: UUID) async {
         guard await canRedo else { return }
         while await redoGroups.contains(where: { $0.id == id || $0.dos.contains(where: { $0.id == id }) }) {
+            let previousID: UUID? = await redos.first?.id
             await redo(force: true)
+            if await redos.first?.id == previousID { break }
         }
     }
     
@@ -127,8 +136,13 @@ extension AsyncUndoManager {
         if currentGroupMetadata == nil, let groupMetadata: AsyncDoGroupMetadata = redo.groupMetadata {
             beginUndoGrouping(metadata: groupMetadata)
         }
-        await redo.action()
+        let succeeded: Bool = await redo.action()
         isRedoing = false
+        guard succeeded else {
+            await editRedos { $0.insert(redo, at: 0) }
+            if currentGroupMetadata != nil { endUndoGrouping() }
+            return
+        }
         if force ? !redos.isEmpty : canRedo, let groupID = redo.groupMetadata?.id, redos.first?.groupMetadata?.id == groupID {
             await self.redo(force: force)
         } else if currentGroupMetadata != nil {
@@ -141,6 +155,18 @@ extension AsyncUndoManager {
     public func registerUndo(
         named name: String? = nil,
         _ action: @escaping @Sendable () async -> Void
+    ) async {
+        await registerUndoAttempt(named: name) {
+            await action()
+            return true
+        }
+    }
+
+    /// A failed attempt keeps its entry for retry. It must leave the graph unchanged
+    /// and must not register an inverse before returning false.
+    public func registerUndoAttempt(
+        named name: String? = nil,
+        _ action: @escaping @Sendable () async -> Bool
     ) async {
         guard isUndoRegistrationEnabled else { return }
         let `do` = AsyncDo(

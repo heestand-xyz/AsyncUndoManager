@@ -61,3 +61,12 @@ func groupedExample() async {
 ```
 
 > Note that these examples are simplified, please refer to the unit tests for more detailed examples.
+
+## Failure-aware actions
+
+`registerUndoAttempt(named:_:)` accepts an asynchronous action returning `Bool`. Return
+`false` only when the attempted inverse left the graph unchanged and registered no
+new inverse. The same entry remains available for retry, and undo-all/redo-all stop
+at that entry. Return `true` after completing the change and registering its inverse.
+The existing `registerUndo` API retains its unconditional-success behavior. Grouping
+does not roll back earlier successful members when a later member fails.
